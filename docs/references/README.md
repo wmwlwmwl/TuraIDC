@@ -25,4 +25,5 @@
 | 运维   | [宝塔部署项目指南](operations/bt-panel-deployment.md)                                | current      | 全新服务器部署步骤。                                           |
 | 运维   | [裸机源码部署指南](operations/bare-metal-deployment.md)                              | current      | 无面板、无容器的原生服务源码部署与实测踩坑。                   |
 | 运维   | [前端 Nginx 伪静态配置](operations/frontend-nginx-rules.md)                          | current      | 四端站点 Nginx 规则。                                          |
-| 运维   | [Docker 与 1Panel 部署指南](operations/docker-and-1panel-deployment.md)              | current      | Docker Compose 一键部署与 1Panel 托管。                        |
+| 运维   | [Docker 与 1Panel 部署指南](operations/docker-and-1panel-deployment.md)              | current      | Docker Compose 一键部署与 1Panel 托管。                         |
+| 运维   | [发行源码 Zip 与 Web 安装向导](operations/zip-install.md)                            | current      | 下载发行包解压，浏览器 /install 向导完成后端安装。              |

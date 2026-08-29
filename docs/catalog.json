@@ -282,6 +282,12 @@
       "review_by": "2026-08-21"
     },
     {
+      "path": "references/operations/zip-install.md",
+      "status": "current",
+      "summary": "下载发行源码 Zip 解压，通过浏览器 /install 向导完成后端安装。",
+      "review_by": "2026-11-20"
+    },
+    {
       "path": "references/operations/local-development.md",
       "status": "current",
       "summary": "本地启动与构建命令。",

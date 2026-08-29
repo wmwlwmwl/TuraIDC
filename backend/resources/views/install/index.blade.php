@@ -66,9 +66,10 @@
     <div id="alert" class="alert"></div>
 
     <div id="panel-1" class="panel show">
+        <div class="full"><label>安装令牌（INSTALL_TOKEN，可选）</label><input id="install_token_input" placeholder="若 backend/.env 已配置则在此填入，否则留空" autocomplete="off"><div class="hint">可选：留空直接安装；若 backend/.env 配置了 INSTALL_TOKEN，需在此填写一致的值。</div></div>
         <div class="req-list"><ul id="req-list"></ul></div>
         <div class="btns">
-            <button class="primary" id="btn-req-refresh">重新检测</button>
+            <button class="primary" id="btn-req-refresh">检测环境</button>
             <button class="primary" id="btn-req-next" disabled>下一步</button>
         </div>
     </div>
@@ -158,13 +159,17 @@
         box.scrollTop = box.scrollHeight;
     }
 
-    // 部署令牌：页面以 ?token=xxx 打开，后续请求携带 X-Install-Token 头，
-    // 不在表单中出现、不写入 .env。
-    var installToken = @json($install_token ?? '');
+    // 安装令牌由用户在页内输入（#install_token_input），随请求以 X-Install-Token 头提交，
+    // 不在表单数据中出现、不写入 .env。
+    function getInstallToken() {
+        var el = $('install_token_input');
+        return el && el.value ? el.value.trim() : '';
+    }
 
     function api(url, body) {
         var headers = { 'Content-Type': 'application/json' };
-        if (installToken) headers['X-Install-Token'] = installToken;
+        var token = getInstallToken();
+        if (token) headers['X-Install-Token'] = token;
         return fetch(url, {
             method: 'POST',
             headers: headers,
@@ -199,7 +204,10 @@
         $('btn-req-next').disabled = true;
         $('req-list').innerHTML = '';
         api('/install/requirements').then(function (result) {
-            if (result.status === 404) { window.location.reload(); return; }
+            if (result.status === 404) {
+                showAlert('err', '安装令牌无效（与 backend/.env 中 INSTALL_TOKEN 不一致）');
+                return;
+            }
             var data = result.data && result.data.data;
             if (!data) { showAlert('err', '环境检测接口异常'); return; }
             var allPassed = data.passed;
@@ -226,6 +234,11 @@
     $('btn-req-refresh').addEventListener('click', function () { clearAlert(); loadRequirements(); });
     $('btn-req-next').addEventListener('click', function () { goStep(2); });
     $('btn-back-1').addEventListener('click', function () { goStep(1); });
+
+    // 填入令牌后回车即触发检测
+    $('install_token_input').addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { clearAlert(); loadRequirements(); }
+    });
 
     $('btn-test').addEventListener('click', function () {
         clearAlert();
@@ -306,7 +319,7 @@
         });
     });
 
-    loadRequirements();
+    // 首次进入不自动检测：需先填写安装令牌再点「检测环境」。
 })();
 </script>
 </body>

@@ -348,6 +348,7 @@ class InstallService
 
         $logger('清理缓存并写入安装锁');
         $this->clearCaches();
+        $this->writeRuntimeConfig($payload);
         $this->writeLock();
 
         Log::info('[install] 系统安装完成', ['database' => $database]);
@@ -640,6 +641,60 @@ class InstallService
             } catch (Throwable) {
                 // 清缓存失败不影响安装结果。
             }
+        }
+    }
+
+    /**
+     * 把真实前端地址以 window.__APP_CONFIG__ 注入各前端 dist/index.html，
+     * 配合 vite define 的运行时覆盖，使 dist 无需为换域名而重建。
+     * 同时把首页内联脚本里烤死的占位地址替换为真实地址。
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    private function writeRuntimeConfig(array $payload): void
+    {
+        $apiOrigin = rtrim((string) $payload['app_url'], '/').'/api';
+        $runtime = [
+            'VITE_API_BASE_URL' => $apiOrigin,
+            'VITE_PUBLIC_SITE_URL' => (string) $payload['frontend_url'],
+            'VITE_CONSOLE_SITE_URL' => (string) $payload['client_console_url'],
+            'VITE_BASE_URL' => '/',
+            'VITE_SESSION_COOKIE_DOMAIN' => '',
+        ];
+
+        $replacements = [
+            'https://api.example.com/api' => $apiOrigin,
+            'https://www.example.com' => (string) $payload['frontend_url'],
+            'https://console.example.com' => (string) $payload['client_console_url'],
+            'https://admin.example.com' => (string) $payload['admin_url'],
+        ];
+
+        $script = '<script>window.__APP_CONFIG__='.json_encode($runtime, JSON_UNESCAPED_SLASHES).';</script>';
+
+        foreach (['frontend-user-v3-www', 'frontend-user-v4-console', 'frontend-admin-v3'] as $dir) {
+            $distDir = base_path('..'.DIRECTORY_SEPARATOR.$dir.DIRECTORY_SEPARATOR.'dist');
+            if (! is_dir($distDir)) {
+                continue;
+            }
+            $index = $distDir.DIRECTORY_SEPARATOR.'index.html';
+            if (! is_file($index)) {
+                continue;
+            }
+            $html = (string) file_get_contents($index);
+
+            // 避免重复注入（重装场景）。
+            if (! str_contains($html, 'window.__APP_CONFIG__')) {
+                $injected = str_replace('</head>', $script.'</head>', $html, $count);
+                if ($count === 0) {
+                    $injected = $script.$html;
+                }
+                $html = $injected;
+            }
+
+            // 替换首页内联脚本里烤死的占位地址。
+            $html = str_replace(array_keys($replacements), array_values($replacements), $html);
+
+            file_put_contents($index, $html);
         }
     }
 

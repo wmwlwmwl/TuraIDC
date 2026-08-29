@@ -1,0 +1,118 @@
+# ============================================================================
+# TuraIDC 发行源码打包
+#
+# 触发：
+#   - push 版本 tag（v*）：打包并发布到对应 GitHub Release
+#   - 手动触发（workflow_dispatch）：打包并上传为构建产物（不建 Release）
+#
+# 产物：turaidc-<版本>.zip
+#   - backend/（含 composer 装好的 vendor/，解压即可跑 /install 向导）
+#   - frontend 三端源码
+#   - 额外预构建一份占位地址的 dist（APP_URL 等用 example.com），
+#     解压即可预览；正式上线前请用真实地址重新 pnpm build 覆盖 dist
+#
+# 说明：
+#   - 仅含 git 跟踪文件 + vendor + dist，已剔除 .git / node_modules / .env /
+#     安装锁 / 日志缓存
+#   - 解压后访问 /install 向导前，需自行 cp .env.example .env 并设 INSTALL_TOKEN
+# ============================================================================
+name: Release Source Package
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    name: 打包发行源码 zip
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          extensions: pdo_mysql, mbstring, openssl, redis, fileinfo, json, intl, bcmath, gd, zip, curl, ctype, dom, tokenizer, xml, simplexml
+          tools: composer:v2
+
+      - name: Composer install（backend，含 vendor）
+        working-directory: backend
+        run: composer install --no-dev --prefer-dist --optimize-autoloader --no-interaction --no-progress
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.13.1
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: 安装前端依赖
+        run: pnpm install --frozen-lockfile --shamefully-hoist --config.verify-deps-before-run=false
+
+      - name: 预构建前端占位 dist
+        run: pnpm run build:frontends
+        env:
+          CI: "true"
+          APP_URL: https://api.example.com
+          FRONTEND_URL: https://www.example.com
+          CLIENT_CONSOLE_URL: https://console.example.com
+          ADMIN_URL: https://admin.example.com
+          CLIENT_SESSION_COOKIE_DOMAIN: .example.com
+
+      - name: 打包 zip
+        run: |
+          set -euo pipefail
+          STAGING=/tmp/turaidc-pkg
+          rm -rf "$STAGING" && mkdir -p "$STAGING"
+
+          # 仅复制 git 跟踪文件（自动排除 .git / node_modules / vendor / .env 等未跟踪项）
+          git ls-files -z | while IFS= read -r -d '' f; do
+            mkdir -p "$STAGING/$(dirname "$f")"
+            cp -a "$f" "$STAGING/$f"
+          done
+
+          # 补入 composer 生成的 vendor（已装好，未跟踪）
+          cp -a backend/vendor "$STAGING/backend/vendor"
+
+          # 补入前端预构建 dist（占位地址，未跟踪）
+          for d in frontend-admin-v3 frontend-user-v3-www frontend-user-v4-console; do
+            [ -d "$d/dist" ] && cp -a "$d/dist" "$STAGING/$d/dist"
+          done
+
+          # 彻底清理不应随包发布的内容
+          find "$STAGING" -name '.env' -not -path '*/node_modules/*' -delete || true
+          find "$STAGING" -name '.env.*' -not -name '.env.example' -delete || true
+          rm -f "$STAGING/backend/storage/app/install.lock" || true
+          rm -rf "$STAGING/backend/storage/logs"/* "$STAGING/backend/bootstrap/cache"/* 2>/dev/null || true
+
+          VERSION="${{ github.ref_name }}"
+          ZIP="turaidc-${VERSION}.zip"
+          (cd "$STAGING" && zip -r "/tmp/$ZIP" . -x '*.git*')
+          echo "ZIP=$ZIP" >> "$GITHUB_ENV"
+          echo "## 打包完成" >> "$GITHUB_STEP_SUMMARY"
+          echo "- 产物：$ZIP" >> "$GITHUB_STEP_SUMMARY"
+          echo "- 大小：$(du -h "/tmp/$ZIP" | cut -f1)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 发布到 GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: /tmp/${{ env.ZIP }}
+          generate_release_notes: true
+
+      - name: 上传构建产物（非 tag）
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ZIP }}
+          path: /tmp/${{ env.ZIP }}
+          retention-days: 7

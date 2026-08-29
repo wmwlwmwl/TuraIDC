@@ -16,9 +16,10 @@ use Throwable;
  * 已安装（安装锁或管理员已存在）后所有入口直接 404，防止向导被重放。
  * 安装期间不依赖 session/cookie，接口统一豁免 CSRF（见 bootstrap/app.php）。
  *
- * 部署级访问控制：必须携带与 env INSTALL_TOKEN 匹配的令牌（请求头
- * X-Install-Token 或 URL 参数 token）；未配置令牌或令牌不匹配一律 404，
- * 避免外部请求者抢先安装创建管理员。令牌不进入安装表单、不写入 .env。
+ * 部署级访问控制：env INSTALL_TOKEN 为强制项。未配置时向导整体禁用（404）；
+ * 配置后，安装页填入的令牌随请求以请求头 X-Install-Token、URL 参数 token
+ * 或请求体 install_token 任一种方式提交，不匹配一律 404，防止外部抢装。
+ * 令牌不写入生成的 .env。
  */
 class InstallController extends Controller
 {
@@ -28,14 +29,11 @@ class InstallController extends Controller
 
     public function index(Request $request)
     {
-        $this->assertInstallAccess();
-
+        // 入口页直接渲染，令牌由用户在页内填写后再随接口请求提交；
+        // 已安装则 404，避免向导被重放。
         abort_if($this->installer->isInstalled(), 404);
 
-        return view('install.index', [
-            // 与 assertInstallAccess() 取值逻辑一致：header 优先，URL 参数兜底。
-            'install_token' => (string) $request->header('X-Install-Token', (string) $request->query('token', '')),
-        ]);
+        return view('install.index');
     }
 
     public function requirements(Request $request): JsonResponse
@@ -143,16 +141,28 @@ class InstallController extends Controller
     }
 
     /**
-     * 部署级访问控制：校验安装令牌（header X-Install-Token 或 URL 参数 token）。
-     * 未配置 INSTALL_TOKEN 或令牌不匹配一律 404，避免暴露安装入口存在性，
-     * 防止外部请求者抢先安装创建管理员。
+     * 部署级访问控制：校验安装令牌（header X-Install-Token / URL 参数 token / 请求体 install_token）。
+     *
+     * 未配置 INSTALL_TOKEN 时直接放行，便于「上传源码解压即访问 /install」的简版部署；
+     * 此时安装入口对可达网络开放，但安装锁存在后向导即 404，重装需先删除
+     * storage/app/install.lock，风险可控。配置了 INSTALL_TOKEN 时令牌不匹配才 404，
+     * 作为可选收口。令牌不进入安装表单、不写入 .env。
      */
     private function assertInstallAccess(): void
     {
         $expectedToken = trim((string) config('install.token'));
-        $providedToken = trim((string) request()->header('X-Install-Token', (string) request()->query('token', '')));
 
-        if ($expectedToken === '' || ! hash_equals($expectedToken, $providedToken)) {
+        // 未配置令牌：放行。
+        if ($expectedToken === '') {
+            return;
+        }
+
+        $providedToken = trim((string) request()->header(
+            'X-Install-Token',
+            (string) request()->query('token', (string) request()->input('install_token', ''))
+        ));
+
+        if (! hash_equals($expectedToken, $providedToken)) {
             abort(404);
         }
     }

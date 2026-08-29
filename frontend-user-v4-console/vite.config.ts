@@ -192,13 +192,28 @@ function resolveAssetFileName(assetInfo: { name?: string }) {
 }
 
 // https://vitejs.dev/config/
-export default ({ mode }: ConfigEnv): UserConfig => {
+export default ({ mode, command }: ConfigEnv): UserConfig => {
   const env = loadEnv(mode, CWD, '');
   const assetBase = resolveAssetBase(
     env.VITE_CONSOLE_ASSET_BASE_URL || env.VITE_CDN_ASSET_HOST || env.VITE_ASSET_BASE_URL || env.VITE_BASE_URL || '',
   );
+  // 运行时地址覆盖：安装向导会把真实地址以 window.__APP_CONFIG__ 注入 dist/index.html，
+  // 让构建期内联的 import.meta.env.VITE_* 优先读运行时值，dist 无需为换域名而重建。
+  // 仅生产构建生效，避免影响 vite dev / 测试（开发期仍走 import.meta.env）。
+  const runtimeOverride = command === 'build'
+    ? {
+        define: {
+          'import.meta.env.VITE_API_BASE_URL': 'window.__APP_CONFIG__?.VITE_API_BASE_URL || "https://api.example.com/api"',
+          'import.meta.env.VITE_PUBLIC_SITE_URL': 'window.__APP_CONFIG__?.VITE_PUBLIC_SITE_URL || "https://www.example.com"',
+          'import.meta.env.VITE_CONSOLE_SITE_URL': 'window.__APP_CONFIG__?.VITE_CONSOLE_SITE_URL || "https://console.example.com"',
+          'import.meta.env.VITE_BASE_URL': 'window.__APP_CONFIG__?.VITE_BASE_URL || "/"',
+          'import.meta.env.VITE_SESSION_COOKIE_DOMAIN': 'window.__APP_CONFIG__?.VITE_SESSION_COOKIE_DOMAIN || ""',
+        },
+      }
+    : {};
   return {
     base: assetBase,
+    ...runtimeOverride,
     resolve: {
       alias: {
         '@': path.resolve(__dirname, './src'),
