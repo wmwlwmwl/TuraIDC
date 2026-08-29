@@ -139,7 +139,15 @@ jobs:
           (cd "$STAGING/frontend-user-v3-www" && zip -r "/tmp/turaidc-www-${VERSION}.zip" . -x '*.git*')
           (cd "$STAGING/frontend-user-v4-console" && zip -r "/tmp/turaidc-console-${VERSION}.zip" . -x '*.git*')
           (cd "$STAGING/frontend-admin-v3" && zip -r "/tmp/turaidc-admin-${VERSION}.zip" . -x '*.git*')
-          echo "ZIPS=/tmp/turaidc-api-${VERSION}.zip /tmp/turaidc-www-${VERSION}.zip /tmp/turaidc-console-${VERSION}.zip /tmp/turaidc-admin-${VERSION}.zip /tmp/${ZIP}" >> "$GITHUB_ENV"
+          {
+            echo "ZIPS<<EOF"
+            echo "/tmp/turaidc-api-${VERSION}.zip"
+            echo "/tmp/turaidc-www-${VERSION}.zip"
+            echo "/tmp/turaidc-console-${VERSION}.zip"
+            echo "/tmp/turaidc-admin-${VERSION}.zip"
+            echo "/tmp/${ZIP}"
+            echo "EOF"
+          } >> "$GITHUB_ENV"
           echo "## 独立站点包" >> "$GITHUB_STEP_SUMMARY"
           echo "- turaidc-api / turaidc-www / turaidc-console / turaidc-admin（各为单一站点部署根）" >> "$GITHUB_STEP_SUMMARY"
 
