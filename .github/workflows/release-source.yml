@@ -14,7 +14,9 @@
 # 说明：
 #   - 仅含 git 跟踪文件 + vendor + dist，已剔除 .git / node_modules / .env /
 #     安装锁 / 日志缓存
-#   - 解压后访问 /install 向导前，需自行 cp .env.example .env 并设 INSTALL_TOKEN
+#   - 已补入运行时目录（storage/*、bootstrap/cache），解压即可跑 /install 向导
+#   - 解压后：先 `cd backend && php artisan key:generate`，再 `chmod -R 775
+#     storage bootstrap/cache`，然后访问 /install（INSTALL_TOKEN 可选）
 # ============================================================================
 name: Release Source Package
 
@@ -87,6 +89,17 @@ jobs:
           for d in frontend-admin-v3 frontend-user-v3-www frontend-user-v4-console; do
             [ -d "$d/dist" ] && cp -a "$d/dist" "$STAGING/$d/dist"
           done
+
+          # 补入 git 不跟踪的运行时目录（根 .gitignore 忽略了 storage/framework/*、
+          # storage/logs/ 等），否则解压后 Laravel 会因缺少 storage/framework/cache|
+          # views|sessions、logs、bootstrap/cache 而 500（valid cache path）。
+          mkdir -p "$STAGING/backend/storage/app/public"
+          mkdir -p "$STAGING/backend/storage/framework/cache/data"
+          mkdir -p "$STAGING/backend/storage/framework/sessions"
+          mkdir -p "$STAGING/backend/storage/framework/views"
+          mkdir -p "$STAGING/backend/storage/framework/testing"
+          mkdir -p "$STAGING/backend/storage/logs"
+          mkdir -p "$STAGING/backend/bootstrap/cache"
 
           # 彻底清理不应随包发布的内容
           find "$STAGING" -name '.env' -not -path '*/node_modules/*' -delete || true

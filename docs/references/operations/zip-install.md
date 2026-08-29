@@ -32,8 +32,9 @@
 ## 3. 服务器前置
 
 - Web 服务器（Nginx/Apache），文档根指向 `backend/public`，PHP 8.3+
-- PHP 扩展：`pdo_mysql`、`redis`、`openssl`、`mbstring`、`fileinfo`、`json`
-- MySQL ≥ 5.7.8（推荐 8.0）、Redis 7+（运行期必需）
+- PHP 扩展：`pdo_mysql`、`openssl`、`mbstring`、`fileinfo`、`json`
+- Redis **可选**：装了 `redis` 扩展就保持默认 `CACHE_STORE=redis`；没装就把 `CACHE_STORE` 设为 `file`（详见 §4）。
+- MySQL ≥ 5.7.8（推荐 8.0）
 - 四个域名解析到本机（可选，本地可用 IP + 端口）
 
 ## 4. 解压与启用安装向导
@@ -43,9 +44,21 @@
 unzip turaidc-<版本>.zip -d /www/wwwroot/turaidc
 cd /www/wwwroot/turaidc/backend
 
-# 权限（.env 由向导在安装时自动从 .env.example 生成，无需手动创建）
+# 1) 生成 .env 与 APP_KEY（Web 安装向导需要 APP_KEY 才能启动）
+php artisan key:generate
+
+# 2) 权限
 chmod -R 775 storage bootstrap/cache
 ```
+
+> 若 PHP 未装 `redis` 扩展，安装向导运行期会报 `Class "Redis" not found`。
+> 编辑 `backend/.env` 把缓存驱动改成本地文件即可（无需 Redis）：
+>
+> ```ini
+> CACHE_STORE=file
+> ```
+>
+> 安装向导安装完成后若仍要换回 Redis，装好扩展后再改回 `redis` 并清缓存即可。
 
 > 默认无需配置 `INSTALL_TOKEN`：解压即可访问 `/install`。若 `backend/.env` 设置了
 > `INSTALL_TOKEN`，安装页「安装令牌」输入框需填一致的值；留空则直接安装。安装锁
