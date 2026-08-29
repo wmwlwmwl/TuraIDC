@@ -132,12 +132,15 @@ jobs:
           set -euo pipefail
           VERSION="${{ github.ref_name }}"
           STAGING=/tmp/turaidc-pkg
-          # 统一用「cd 进目录再 zip -r /tmp/x.zip .」的写法（与总包一致，已验证可用）；
-          # 直接 `zip -r x.zip dir` 在某些 zip 版本会把输出名误判为待添加文件而建不出归档。
-          cd "$STAGING/backend"              && zip -r "/tmp/turaidc-api-${VERSION}.zip"      . -x '*.git*'
-          cd "$STAGING/frontend-user-v3-www" && zip -r "/tmp/turaidc-www-${VERSION}.zip"     . -x '*.git*'
-          cd "$STAGING/frontend-user-v4-console" && zip -r "/tmp/turaidc-console-${VERSION}.zip" . -x '*.git*'
-          cd "$STAGING/frontend-admin-v3"    && zip -r "/tmp/turaidc-admin-${VERSION}.zip"   . -x '*.git*'
+          cd "$STAGING"
+          # 输入用 ./ 前缀，输出用绝对 /tmp 路径（与总包写法一致）
+          zip -r "/tmp/turaidc-api-${VERSION}.zip"      ./backend                  -x '*.git*'
+          zip -r "/tmp/turaidc-www-${VERSION}.zip"     ./frontend-user-v3-www     -x '*.git*'
+          zip -r "/tmp/turaidc-console-${VERSION}.zip" ./frontend-user-v4-console -x '*.git*'
+          zip -r "/tmp/turaidc-admin-${VERSION}.zip"   ./frontend-admin-v3        -x '*.git*'
+          echo "=== 分包产物 ==="
+          ls -la /tmp/turaidc-*.zip
+          for f in /tmp/turaidc-*-${VERSION}.zip; do zip -T "$f" >/dev/null 2>&1 && echo "OK  $f" || echo "BAD $f"; done
           echo "## 独立站点包" >> "$GITHUB_STEP_SUMMARY"
           echo "- turaidc-api / turaidc-www / turaidc-console / turaidc-admin（各为单一站点部署根）" >> "$GITHUB_STEP_SUMMARY"
 
