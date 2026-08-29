@@ -100,7 +100,16 @@ https://api.你的域名.com/install
 - **前端无需为换域名重建**：安装向导在完成时已把真实地址以 `window.__APP_CONFIG__` 注入各前端 `dist/index.html`，配合构建期的运行时覆盖，前端直接读取，不必重新 `pnpm build`。发行包自带的占位 `dist` 装完即可指向你的域名。
 - **计划任务**：每分钟执行 `php artisan schedule:run`（队列与心跳）。
 - **VNC Relay**：常驻 `php artisan vnc:relay`（不使用 VNC 可跳过）；确认 `127.0.0.1:8100` 监听。
-- **前端部署**：把三个 `dist/`（装完后已含真实地址）部署到各自站点，伪静态见[前端 Nginx 伪静态配置](frontend-nginx-rules.md)；API 站点加 `/ws/vnc` 转发与 Laravel 回退。如需自行重建，在源码目录 `pnpm install --frozen-lockfile --shamefully-hoist` 后 `pnpm run build:frontends`（读 `backend/.env` 真实地址，会重新生成 `dist/index.html`，覆盖向导注入的脚本，效果一致）。
+- **前端部署（三个站点都建纯静态站）**：把三个 `dist/`（装完后已含真实地址）部署到各自站点根目录（`frontend-user-v3-www/dist`、`frontend-user-v4-console/dist`、`frontend-admin-v3/dist`）。宝塔里**不要**用「Node 项目」，用「网站 → 添加站点」选**纯静态**，根目录指到各自的 `dist`。每个站点都要加 **SPA 伪静态**，否则刷新子路由（如 `/client/login`、`/admin/*`）会 404：
+  ```nginx
+  try_files $uri $uri/ /index.html;
+  ```
+  API 站点（`backend/public`）加 `/ws/vnc` 转发与 Laravel 回退，详见[前端 Nginx 伪静态配置](frontend-nginx-rules.md)。
+- **重注入前端地址**：安装向导已把真实地址注入 `dist/index.html`；但以下场景需要重跑，否则前端会退回到占位 `example.com` 或旧地址：安装向导之后才补入/重建 `dist`、之后更换了域名。项目内提供幂等命令，读 `backend/.env` 真实地址覆盖写入：
+  ```bash
+  cd backend && php artisan turaidc:inject-frontend-config
+  ```
+  如需自行重建前端：`pnpm install --frozen-lockfile --shamefully-hoist` 后 `pnpm run build:frontends`（读 `backend/.env` 真实地址重新生成 `dist/index.html`，效果一致，但建议重建后也跑一次上面的命令兜底）。
 - **健康检查**：`/api/health` 与 `/api/ready` 应返回 200。
 
 ## 7. 常见问题

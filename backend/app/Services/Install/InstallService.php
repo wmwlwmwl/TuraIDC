@@ -7,6 +7,7 @@ namespace App\Services\Install;
 use App\Models\AdminUser;
 use App\Models\Role;
 use App\Services\Admin\Rbac\BuiltinAdminRoleService;
+use App\Services\Install\FrontendConfigInjector;
 use Database\Seeders\SettingsSeeder;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
@@ -653,49 +654,13 @@ class InstallService
      */
     private function writeRuntimeConfig(array $payload): void
     {
-        $apiOrigin = rtrim((string) $payload['app_url'], '/').'/api';
-        $runtime = [
-            'VITE_API_BASE_URL' => $apiOrigin,
-            'VITE_PUBLIC_SITE_URL' => (string) $payload['frontend_url'],
-            'VITE_CONSOLE_SITE_URL' => (string) $payload['client_console_url'],
-            'VITE_BASE_URL' => '/',
-            'VITE_SESSION_COOKIE_DOMAIN' => '',
-        ];
-
-        $replacements = [
-            'https://api.example.com/api' => $apiOrigin,
-            'https://www.example.com' => (string) $payload['frontend_url'],
-            'https://console.example.com' => (string) $payload['client_console_url'],
-            'https://admin.example.com' => (string) $payload['admin_url'],
-        ];
-
-        $script = '<script>window.__APP_CONFIG__='.json_encode($runtime, JSON_UNESCAPED_SLASHES).';</script>';
-
-        foreach (['frontend-user-v3-www', 'frontend-user-v4-console', 'frontend-admin-v3'] as $dir) {
-            $distDir = base_path('..'.DIRECTORY_SEPARATOR.$dir.DIRECTORY_SEPARATOR.'dist');
-            if (! is_dir($distDir)) {
-                continue;
-            }
-            $index = $distDir.DIRECTORY_SEPARATOR.'index.html';
-            if (! is_file($index)) {
-                continue;
-            }
-            $html = (string) file_get_contents($index);
-
-            // 避免重复注入（重装场景）。
-            if (! str_contains($html, 'window.__APP_CONFIG__')) {
-                $injected = str_replace('</head>', $script.'</head>', $html, $count);
-                if ($count === 0) {
-                    $injected = $script.$html;
-                }
-                $html = $injected;
-            }
-
-            // 替换首页内联脚本里烤死的占位地址。
-            $html = str_replace(array_keys($replacements), array_values($replacements), $html);
-
-            file_put_contents($index, $html);
-        }
+        // 复用独立的注入器，保证安装向导与 turaidc:inject-frontend-config 命令行为一致。
+        app(FrontendConfigInjector::class)->inject([
+            'app_url' => (string) $payload['app_url'],
+            'frontend_url' => (string) $payload['frontend_url'],
+            'client_console_url' => (string) $payload['client_console_url'],
+            'admin_url' => (string) $payload['admin_url'],
+        ]);
     }
 
     private function writeLock(): void
