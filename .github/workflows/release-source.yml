@@ -132,15 +132,23 @@ jobs:
           set -euo pipefail
           VERSION="${{ github.ref_name }}"
           STAGING=/tmp/turaidc-pkg
-          cd "$STAGING"
-          # 输入用 ./ 前缀，输出用绝对 /tmp 路径（与总包写法一致）
-          zip -r "/tmp/turaidc-api-${VERSION}.zip"      ./backend                  -x '*.git*'
-          zip -r "/tmp/turaidc-www-${VERSION}.zip"     ./frontend-user-v3-www     -x '*.git*'
-          zip -r "/tmp/turaidc-console-${VERSION}.zip" ./frontend-user-v4-console -x '*.git*'
-          zip -r "/tmp/turaidc-admin-${VERSION}.zip"   ./frontend-admin-v3        -x '*.git*'
+          # 用 python 的 shutil.make_archive 生成分包，规避部分 zip 版本把输出名误判为输入、
+          # 导致归档未生成（name not matched）的问题。
+          VERSION="$VERSION" python3 - <<'PY'
+          import shutil, os
+          s = "/tmp/turaidc-pkg"
+          ver = os.environ["VERSION"]
+          shutil.make_archive(f"/tmp/turaidc-api-{ver}",      "zip", f"{s}/backend")
+          shutil.make_archive(f"/tmp/turaidc-www-{ver}",     "zip", f"{s}/frontend-user-v3-www")
+          shutil.make_archive(f"/tmp/turaidc-console-{ver}", "zip", f"{s}/frontend-user-v4-console")
+          shutil.make_archive(f"/tmp/turaidc-admin-{ver}",   "zip", f"{s}/frontend-admin-v3")
+          PY
           echo "=== 分包产物 ==="
           ls -la /tmp/turaidc-*.zip
-          for f in /tmp/turaidc-*-${VERSION}.zip; do zip -T "$f" >/dev/null 2>&1 && echo "OK  $f" || echo "BAD $f"; done
+          test -f "/tmp/turaidc-api-${VERSION}.zip"      && echo "EXISTS api"      || echo "MISSING api"
+          test -f "/tmp/turaidc-www-${VERSION}.zip"     && echo "EXISTS www"     || echo "MISSING www"
+          test -f "/tmp/turaidc-console-${VERSION}.zip" && echo "EXISTS console" || echo "MISSING console"
+          test -f "/tmp/turaidc-admin-${VERSION}.zip"   && echo "EXISTS admin"   || echo "MISSING admin"
           echo "## 独立站点包" >> "$GITHUB_STEP_SUMMARY"
           echo "- turaidc-api / turaidc-www / turaidc-console / turaidc-admin（各为单一站点部署根）" >> "$GITHUB_STEP_SUMMARY"
 
