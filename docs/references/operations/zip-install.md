@@ -104,7 +104,22 @@ https://api.你的域名.com/install
   ```nginx
   try_files $uri $uri/ /index.html;
   ```
-  API 站点（`backend/public`）加 `/ws/vnc` 转发与 Laravel 回退，详见[前端 Nginx 伪静态配置](frontend-nginx-rules.md)。
+  API 站点（`backend/public`，选 PHP 8.3）还需 Laravel 路由回退，**否则 `/install` 与所有 API 路由都会 404**：
+  ```nginx
+  location / {
+      try_files $uri $uri/ /index.php?$query_string;
+  }
+  ```
+  `/ws/vnc` 转发仅 VNC 中继需要（不装 VNC 可不加）：
+  ```nginx
+  location /ws/vnc {
+      proxy_pass http://127.0.0.1:8100;
+      proxy_http_version 1.1;
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection "upgrade";
+      proxy_set_header Host $host;
+  }
+  ```
 - **重注入前端地址**：安装向导已把真实地址注入 `dist/index.html`；但以下场景需要重跑，否则前端会退回到占位 `example.com` 或旧地址：安装向导之后才补入/重建 `dist`、之后更换了域名。项目内提供幂等命令，读 `backend/.env` 真实地址覆盖写入：
   ```bash
   cd backend && php artisan turaidc:inject-frontend-config
