@@ -1,6 +1,6 @@
 # 发行源码 Zip 与 Web 安装向导
 
-面向希望用「下载发行包 → 解压 → 浏览器安装」方式部署的用户。后端通过内置 Web 安装向导（`/install`）完成建库、迁移与初始化，无需手动执行宝塔四站点或 Docker 编排；前端仍需单独构建并部署到独立站点。
+面向希望用「下载发行包 → 解压 → 浏览器安装」方式部署的用户。后端通过内置 Web 安装向导（`/install`）完成建库、迁移与初始化，无需手动执行宝塔四站点或 Docker 编排；前端三端仍需部署到独立站点（发行包已带占位 `dist`，无需重新构建）。
 
 > 对齐时间：`2026-08-29`
 > 配套文档：
@@ -13,7 +13,7 @@
 
 - 适合：单台服务器、希望最小化命令行操作的源码部署；发行包已含 `vendor/`，解压即可跑向导。
 - 不适合：需要容器化扩缩容、或由 CI 统一出镜像的团队（请走 Docker 路线）。
-- 安装向导**只安装后端**。前端三端仍需 `pnpm build` 后部署到各自站点；官网 SEO 动态渲染依赖 `frontend-user-v3-www/dist/index.html` 存在。
+- 安装向导**只安装后端**。前端三端部署到各自独立站点；官网 SEO 动态渲染依赖 `frontend-user-v3-www/dist/index.html` 存在。
 
 ## 2. 获取发行包
 
@@ -23,9 +23,10 @@
 - 手动 `workflow_dispatch` 时，作为 7 天保留的构建产物上传。
 
 包内包含：
+
 - `backend/`（含 `composer install --no-dev` 装好的 `vendor/`）
 - 前端三端源码
-- 一份用占位地址（`https://*.example.com`）预构建的 `dist/`，解压即可预览；正式上线前请用真实地址重新 `pnpm build` 覆盖
+- 一份用占位地址（`https://*.example.com`）预构建的 `dist/`，解压即可用；安装向导会把真实地址注入，无需重新 `pnpm build`
 
 包已剔除 `.git`、`node_modules`、`.env`、安装锁与日志缓存。
 
@@ -33,11 +34,13 @@
 
 - Web 服务器（Nginx/Apache），文档根指向 `backend/public`，PHP 8.3+
 - PHP 扩展：`pdo_mysql`、`openssl`、`mbstring`、`fileinfo`、`json`
-- Redis **可选**：装了 `redis` 扩展就保持默认 `CACHE_STORE=redis`；没装就把 `CACHE_STORE` 设为 `file`（详见 §4）。
+- Redis **可选**：装了 `redis` 扩展就保持默认 `CACHE_STORE=redis`；没装就把 `CACHE_STORE` 设为 `file`（详见 §4）
 - MySQL ≥ 5.7.8（推荐 8.0）
-- 四个域名解析到本机（可选，本地可用 IP + 端口）
+- 四个域名/地址解析到本机（可选，本地可用 IP + 端口区分，例如 `:8080`/`:8181`/`:8082`/`:8081`）
 
 ## 4. 解压与启用安装向导
+
+### 4.1 解压与初始化
 
 ```bash
 # 解压到站点目录，文档根 = 项目路径/backend/public
@@ -47,24 +50,45 @@ cd /www/wwwroot/turaidc/backend
 # 1) 生成 .env 与 APP_KEY（Web 安装向导需要 APP_KEY 才能启动）
 php artisan key:generate
 
-# 2) 权限
+# 2) 权限（storage / bootstrap/cache 需可写）
 chmod -R 775 storage bootstrap/cache
 ```
 
-> 若 PHP 未装 `redis` 扩展，安装向导运行期会报 `Class "Redis" not found`。
-> 编辑 `backend/.env` 把缓存驱动改成本地文件即可（无需 Redis）：
+> 若 PHP 未装 `redis` 扩展，运行期会报 `Class "Redis" not found`。编辑 `backend/.env` 把缓存驱动改成本地文件即可：
 >
 > ```ini
 > CACHE_STORE=file
 > ```
 >
-> 安装向导安装完成后若仍要换回 Redis，装好扩展后再改回 `redis` 并清缓存即可。
+> 装好扩展后想换回 Redis，把该项改回 `redis` 并清缓存即可。
 
-> 默认无需配置 `INSTALL_TOKEN`：解压即可访问 `/install`。若 `backend/.env` 设置了
-> `INSTALL_TOKEN`，安装页「安装令牌」输入框需填一致的值；留空则直接安装。安装锁
-> 存在后向导即 404，重装需先删除 `storage/app/install.lock`。
+> 默认无需配置 `INSTALL_TOKEN`：解压即可访问 `/install`。若 `backend/.env` 设置了 `INSTALL_TOKEN`，安装页「安装令牌」输入框需填一致的值；留空则直接安装。安装锁存在后向导即 404，重装需先删除 `storage/app/install.lock`。
 
-## 4.1 域名、站点与部署目录对应
+### 4.2 API 站点（后端）Web 服务器配置 —— 安装前必须
+
+`/install` 与所有 API 路由都由 Laravel 处理，**必须在访问安装页之前配好伪静态**，否则直接 404。
+
+文档根：`backend/public`；选择 PHP 8.3（宝塔会自带 PHP 处理器）。再添加 Laravel 路由回退：
+
+```nginx
+location / {
+    try_files $uri $uri/ /index.php?$query_string;
+}
+```
+
+`/ws/vnc` 转发**仅 VNC 中继需要**（不装/不用 VNC 可不加）：
+
+```nginx
+location /ws/vnc {
+    proxy_pass http://127.0.0.1:8100;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host $host;
+}
+```
+
+### 4.3 域名、站点与部署目录对应
 
 安装向导第 2 步「站点地址」四格与四个站点一一对应；四个地址的 origin 必须互不相同、同协议。
 
@@ -80,7 +104,7 @@ chmod -R 775 storage bootstrap/cache
 
 ## 5. 访问安装页
 
-浏览器打开（即 `APP_URL` 对应的域名）：
+在 §4.2 配好 API 伪静态后，浏览器打开 `APP_URL` 对应的域名：
 
 ```text
 https://api.你的域名.com/install
@@ -97,39 +121,46 @@ https://api.你的域名.com/install
 
 ## 6. 装后补齐
 
-- **前端无需为换域名重建**：安装向导在完成时已把真实地址以 `window.__APP_CONFIG__` 注入各前端 `dist/index.html`，配合构建期的运行时覆盖，前端直接读取，不必重新 `pnpm build`。发行包自带的占位 `dist` 装完即可指向你的域名。
-- **计划任务**：每分钟执行 `php artisan schedule:run`（队列与心跳）。
-- **VNC Relay**：常驻 `php artisan vnc:relay`（不使用 VNC 可跳过）；确认 `127.0.0.1:8100` 监听。
-- **前端部署（三个站点都建纯静态站）**：把三个 `dist/`（装完后已含真实地址）部署到各自站点根目录（`frontend-user-v3-www/dist`、`frontend-user-v4-console/dist`、`frontend-admin-v3/dist`）。宝塔里**不要**用「Node 项目」，用「网站 → 添加站点」选**纯静态**，根目录指到各自的 `dist`。每个站点都要加 **SPA 伪静态**，否则刷新子路由（如 `/client/login`、`/admin/*`）会 404：
-  ```nginx
-  try_files $uri $uri/ /index.html;
-  ```
-  API 站点（`backend/public`，选 PHP 8.3）还需 Laravel 路由回退，**否则 `/install` 与所有 API 路由都会 404**：
-  ```nginx
-  location / {
-      try_files $uri $uri/ /index.php?$query_string;
-  }
-  ```
-  `/ws/vnc` 转发仅 VNC 中继需要（不装 VNC 可不加）：
-  ```nginx
-  location /ws/vnc {
-      proxy_pass http://127.0.0.1:8100;
-      proxy_http_version 1.1;
-      proxy_set_header Upgrade $http_upgrade;
-      proxy_set_header Connection "upgrade";
-      proxy_set_header Host $host;
-  }
-  ```
-- **重注入前端地址**：安装向导已把真实地址注入 `dist/index.html`；但以下场景需要重跑，否则前端会退回到占位 `example.com` 或旧地址：安装向导之后才补入/重建 `dist`、之后更换了域名。项目内提供幂等命令，读 `backend/.env` 真实地址覆盖写入：
-  ```bash
-  cd backend && php artisan turaidc:inject-frontend-config
-  ```
-  如需自行重建前端：`pnpm install --frozen-lockfile --shamefully-hoist` 后 `pnpm run build:frontends`（读 `backend/.env` 真实地址重新生成 `dist/index.html`，效果一致，但建议重建后也跑一次上面的命令兜底）。
-- **健康检查**：`/api/health` 与 `/api/ready` 应返回 200。
+### 6.1 前端三站点部署（纯静态站 + SPA 伪静态）
+
+把三个 `dist/`（装完后已含真实地址）部署到各自站点根目录：
+
+- 官网：`frontend-user-v3-www/dist`
+- 用户控制台：`frontend-user-v4-console/dist`
+- 管理端：`frontend-admin-v3/dist`
+
+宝塔里**不要**用「Node 项目」，用「网站 → 添加站点」选**纯静态**，根目录指到各自的 `dist`。每个站点都要加 **SPA 伪静态**，否则刷新子路由（如 `/client/login`、`/admin/*`）会 404：
+
+```nginx
+try_files $uri $uri/ /index.html;
+```
+
+### 6.2 重注入前端地址
+
+安装向导已把真实地址以 `window.__APP_CONFIG__` 注入各 `dist/index.html`；但以下场景需要重跑，否则前端会退回占位 `example.com` 或旧地址：安装向导之后才补入/重建 `dist`、之后更换了域名。项目内提供幂等命令，读 `backend/.env` 真实地址覆盖写入：
+
+```bash
+cd backend && php artisan turaidc:inject-frontend-config
+```
+
+如需自行重建前端：`pnpm install --frozen-lockfile --shamefully-hoist` 后 `pnpm run build:frontends`（读 `backend/.env` 真实地址重新生成 `dist/index.html`，效果一致，但建议重建后也跑一次上面的命令兜底）。
+
+### 6.3 计划任务
+
+每分钟执行 `php artisan schedule:run`（队列与心跳）。
+
+### 6.4 VNC Relay（可选）
+
+常驻 `php artisan vnc:relay`（不使用 VNC 可跳过）；确认 `127.0.0.1:8100` 监听。启用时需在 API 站点配 §4.2 的 `/ws/vnc` 转发。
+
+### 6.5 健康检查
+
+`/api/health` 与 `/api/ready` 应返回 200。
 
 ## 7. 常见问题
 
-- 访问 `/install` 直接 404：`.env` 中 `APP_KEY` 已被填写（已安装态）；或配置了 `INSTALL_TOKEN` 但页面输入的令牌不一致。
+- 访问 `/install` 直接 404：API 站点未配 Laravel 伪静态（§4.2）；或 `.env` 中 `APP_KEY` 已填（已安装态）；或配置了 `INSTALL_TOKEN` 但页面输入的令牌不一致。
 - 环境检测报 `vendor/` 缺失：发行包异常或解压不完整，重新下载 Release 资产。
 - 安装报数据库版本过低：MySQL 需 ≥ 5.7.8；5.7 建议在 `my.cnf` 设 `explicit_defaults_for_timestamp=ON`。
-- 官网首页 500（`Could not resolve host: frontends`）：向导已把 `SEO_FRONTEND_SHELL_URL` 写为本机 `file://.../frontend-user-v3-www/dist/index.html`，前端构建产物缺失会导致此错，先完成前端构建。
+- 官网首页 500（`Could not resolve host: frontends`）：向导已把 `SEO_FRONTEND_SHELL_URL` 写为本机 `file://.../frontend-user-v3-www/dist/index.html`，前端构建产物缺失会导致此错，先完成前端部署（§6.1）。
+- 前端登录跳 `example.com`：对应前端 `dist/index.html` 未注入真实地址，跑一次 `php artisan turaidc:inject-frontend-config`（§6.2）。
