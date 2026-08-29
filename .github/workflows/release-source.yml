@@ -132,14 +132,12 @@ jobs:
           set -euo pipefail
           VERSION="${{ github.ref_name }}"
           STAGING=/tmp/turaidc-pkg
-          cd "$STAGING"
-          # API：完整 backend（Laravel 不能只抽 public；部署时站点根 = backend/public）
-          zip -r turaidc-api.zip      backend                  -x '*.git*'
-          # 前端：扁平化后 dist 内容已直接在 frontend-x/ 根，打包该目录即解压即站点根
-          zip -r turaidc-www.zip      frontend-user-v3-www     -x '*.git*'
-          zip -r turaidc-console.zip  frontend-user-v4-console -x '*.git*'
-          zip -r turaidc-admin.zip    frontend-admin-v3        -x '*.git*'
-          mv turaidc-*.zip /tmp/
+          # 统一用「cd 进目录再 zip -r /tmp/x.zip .」的写法（与总包一致，已验证可用）；
+          # 直接 `zip -r x.zip dir` 在某些 zip 版本会把输出名误判为待添加文件而建不出归档。
+          cd "$STAGING/backend"              && zip -r "/tmp/turaidc-api-${VERSION}.zip"      . -x '*.git*'
+          cd "$STAGING/frontend-user-v3-www" && zip -r "/tmp/turaidc-www-${VERSION}.zip"     . -x '*.git*'
+          cd "$STAGING/frontend-user-v4-console" && zip -r "/tmp/turaidc-console-${VERSION}.zip" . -x '*.git*'
+          cd "$STAGING/frontend-admin-v3"    && zip -r "/tmp/turaidc-admin-${VERSION}.zip"   . -x '*.git*'
           echo "## 独立站点包" >> "$GITHUB_STEP_SUMMARY"
           echo "- turaidc-api / turaidc-www / turaidc-console / turaidc-admin（各为单一站点部署根）" >> "$GITHUB_STEP_SUMMARY"
 
