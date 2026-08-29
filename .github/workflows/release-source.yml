@@ -134,20 +134,12 @@ jobs:
           STAGING=/tmp/turaidc-pkg
           cd "$STAGING"
           # API：完整 backend（Laravel 不能只抽 public；部署时站点根 = backend/public）
-          (cd "$STAGING" && zip -r "/tmp/turaidc-api-${VERSION}.zip" backend -x '*.git*')
+          zip -r turaidc-api.zip      backend                  -x '*.git*'
           # 前端：扁平化后 dist 内容已直接在 frontend-x/ 根，打包该目录即解压即站点根
-          (cd "$STAGING/frontend-user-v3-www" && zip -r "/tmp/turaidc-www-${VERSION}.zip" . -x '*.git*')
-          (cd "$STAGING/frontend-user-v4-console" && zip -r "/tmp/turaidc-console-${VERSION}.zip" . -x '*.git*')
-          (cd "$STAGING/frontend-admin-v3" && zip -r "/tmp/turaidc-admin-${VERSION}.zip" . -x '*.git*')
-          {
-            echo "ZIPS<<EOF"
-            echo "/tmp/turaidc-api-${VERSION}.zip"
-            echo "/tmp/turaidc-www-${VERSION}.zip"
-            echo "/tmp/turaidc-console-${VERSION}.zip"
-            echo "/tmp/turaidc-admin-${VERSION}.zip"
-            echo "/tmp/${ZIP}"
-            echo "EOF"
-          } >> "$GITHUB_ENV"
+          zip -r turaidc-www.zip      frontend-user-v3-www     -x '*.git*'
+          zip -r turaidc-console.zip  frontend-user-v4-console -x '*.git*'
+          zip -r turaidc-admin.zip    frontend-admin-v3        -x '*.git*'
+          mv turaidc-*.zip /tmp/
           echo "## 独立站点包" >> "$GITHUB_STEP_SUMMARY"
           echo "- turaidc-api / turaidc-www / turaidc-console / turaidc-admin（各为单一站点部署根）" >> "$GITHUB_STEP_SUMMARY"
 
@@ -155,7 +147,12 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ env.ZIPS }}
+          files: |
+            /tmp/turaidc-api-${{ github.ref_name }}.zip
+            /tmp/turaidc-www-${{ github.ref_name }}.zip
+            /tmp/turaidc-console-${{ github.ref_name }}.zip
+            /tmp/turaidc-admin-${{ github.ref_name }}.zip
+            /tmp/turaidc-${{ github.ref_name }}.zip
           generate_release_notes: true
 
       - name: 上传构建产物（非 tag）
