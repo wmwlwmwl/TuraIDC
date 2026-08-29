@@ -13,7 +13,7 @@
 
 - 适合：单台服务器、希望最小化命令行操作的源码部署；发行包已含 `vendor/`，解压即可跑向导。
 - 不适合：需要容器化扩缩容、或由 CI 统一出镜像的团队（请走 Docker 路线）。
-- 安装向导**只安装后端**。前端三端部署到各自独立站点；官网 SEO 动态渲染依赖 `frontend-user-v3-www/dist/index.html` 存在。
+- 安装向导**只安装后端**。前端三端部署到各自独立站点；官网 SEO 动态渲染依赖 `frontend-user-v3-www/index.html` 存在。
 
 ## 2. 获取发行包
 
@@ -22,13 +22,21 @@
 - 推送版本 tag（`v*`）时，自动发布到对应 GitHub Release，资产名 `turaidc-<版本>.zip`。
 - 手动 `workflow_dispatch` 时，作为 7 天保留的构建产物上传。
 
-包内包含：
+包内包含（已剔除前端源码、docs、.github 等冗余）：
 
-- `backend/`（含 `composer install --no-dev` 装好的 `vendor/`）
-- 前端三端源码
-- 一份用占位地址（`https://*.example.com`）预构建的 `dist/`，解压即可用；安装向导会把真实地址注入，无需重新 `pnpm build`
+- `backend/`（完整 Laravel 应用，含 `composer install --no-dev` 装好的 `vendor/`；web 文档根 = `backend/public`）
+- 前端三端的构建产物（官网 / 控制台 / 管理端各一份，位于各自目录根；含占位地址；安装向导会把真实地址注入，无需重新 `pnpm build`）
+- 运行时目录（`storage/*`、`bootstrap/cache`）
 
-包已剔除 `.git`、`node_modules`、`.env`、安装锁与日志缓存。
+> 发布时除总包 `turaidc-<版本>.zip` 外，还会额外产出 4 个独立站点包，适合分目录 / 分机器部署：
+> - `turaidc-api-<版本>.zip`：完整 `backend/`（站点根 = `backend/public`）
+> - `turaidc-www-<版本>.zip`：官网 `dist/` 内容（解压即站点根）
+> - `turaidc-console-<版本>.zip`：控制台 `dist/` 内容
+> - `turaidc-admin-<版本>.zip`：管理端 `dist/` 内容
+>
+> 独立站点包与总包内容一致（均为占位地址，需注入真实地址），只是拆分方式不同。
+
+包已剔除 `.git`、`node_modules`、`.env`、安装锁与日志缓存；各站点 `.htaccess`（Apache 伪静态）已随包提供，Nginx 环境自动忽略。
 
 ## 3. 服务器前置
 
@@ -76,6 +84,17 @@ location / {
 }
 ```
 
+Apache 等价（填「伪静态」或放入 `.htaccess`）：
+
+```apache
+RewriteEngine On
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^ index.php [L]
+```
+
+发行包 `backend/public` 已内置该 `.htaccess`，Apache 站点根指向 `backend/public` 且 `AllowOverride` 开启即生效，无需手填。更完整规则（含 VNC 转发）见 [前端伪静态配置 · Apache 章节](frontend-nginx-rules.md)。
+
 `/ws/vnc` 转发**仅 VNC 中继需要**（不装/不用 VNC 可不加）：
 
 ```nginx
@@ -95,9 +114,9 @@ location /ws/vnc {
 | 配置项 | 填写示例 | 对应站点 / 角色 | 部署根目录 |
 | --- | --- | --- | --- |
 | `APP_URL` | `https://api.你的域名.com` | 后端 API（Laravel，含安装页 `/install`） | `backend/public` |
-| `FRONTEND_URL` | `https://www.你的域名.com` | 官网 / 用户入口 | `frontend-user-v3-www/dist` |
-| `CLIENT_CONSOLE_URL` | `https://console.你的域名.com` | 用户控制台 | `frontend-user-v4-console/dist` |
-| `ADMIN_URL` | `https://admin.你的域名.com` | 管理端 | `frontend-admin-v3/dist` |
+| `FRONTEND_URL` | `https://www.你的域名.com` | 官网 / 用户入口 | `frontend-user-v3-www` |
+| `CLIENT_CONSOLE_URL` | `https://console.你的域名.com` | 用户控制台 | `frontend-user-v4-console` |
+| `ADMIN_URL` | `https://admin.你的域名.com` | 管理端 | `frontend-admin-v3` |
 
 - **安装页访问 `APP_URL` 对应的域名**：`https://api.你的域名.com/install`（安装页由后端提供，其余三个域名是纯前端静态站，不提供安装页）。
 - 装完后 `ADMIN_URL` 用于登录管理后台，`WWW`/`CONSOLE` 给用户访问。
@@ -123,21 +142,32 @@ https://api.你的域名.com/install
 
 ### 6.1 前端三站点部署（纯静态站 + SPA 伪静态）
 
-把三个 `dist/`（装完后已含真实地址）部署到各自站点根目录：
+把三个前端目录（装完后已含真实地址）部署到各自站点根目录：
 
-- 官网：`frontend-user-v3-www/dist`
-- 用户控制台：`frontend-user-v4-console/dist`
-- 管理端：`frontend-admin-v3/dist`
+- 官网：`frontend-user-v3-www`
+- 用户控制台：`frontend-user-v4-console`
+- 管理端：`frontend-admin-v3`
 
-宝塔里**不要**用「Node 项目」，用「网站 → 添加站点」选**纯静态**，根目录指到各自的 `dist`。每个站点都要加 **SPA 伪静态**，否则刷新子路由（如 `/client/login`、`/admin/*`）会 404：
+宝塔里**不要**用「Node 项目」，用「网站 → 添加站点」选**纯静态**，根目录直接指到各自的前端目录（如 `frontend-user-v3-www`）。每个站点都要加 **SPA 伪静态**，否则刷新子路由（如 `/client/login`、`/admin/*`）会 404：
 
 ```nginx
 try_files $uri $uri/ /index.html;
 ```
 
+Apache 等价（以官网为例，控制台 / 管理端同理）：
+
+```apache
+RewriteEngine On
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^ index.html [L]
+```
+
+发行包三个前端目录已内置该 `.htaccess`（Apache SPA 回退，Nginx 忽略）。官网还需把 SEO 公开路径反代到 API，见 [前端伪静态配置 · Apache 章节](frontend-nginx-rules.md)。
+
 ### 6.2 重注入前端地址
 
-安装向导已把真实地址以 `window.__APP_CONFIG__` 注入各 `dist/index.html`；但以下场景需要重跑，否则前端会退回占位 `example.com` 或旧地址：安装向导之后才补入/重建 `dist`、之后更换了域名。项目内提供幂等命令，读 `backend/.env` 真实地址覆盖写入：
+安装向导已把真实地址以 `window.__APP_CONFIG__` 注入各前端 `index.html`；但以下场景需要重跑，否则前端会退回占位 `example.com` 或旧地址：安装向导之后才补入/重建前端、之后更换了域名。项目内提供幂等命令，读 `backend/.env` 真实地址覆盖写入：
 
 ```bash
 cd backend && php artisan turaidc:inject-frontend-config
@@ -162,5 +192,65 @@ cd backend && php artisan turaidc:inject-frontend-config
 - 访问 `/install` 直接 404：API 站点未配 Laravel 伪静态（§4.2）；或 `.env` 中 `APP_KEY` 已填（已安装态）；或配置了 `INSTALL_TOKEN` 但页面输入的令牌不一致。
 - 环境检测报 `vendor/` 缺失：发行包异常或解压不完整，重新下载 Release 资产。
 - 安装报数据库版本过低：MySQL 需 ≥ 5.7.8；5.7 建议在 `my.cnf` 设 `explicit_defaults_for_timestamp=ON`。
-- 官网首页 500（`Could not resolve host: frontends`）：向导已把 `SEO_FRONTEND_SHELL_URL` 写为本机 `file://.../frontend-user-v3-www/dist/index.html`，前端构建产物缺失会导致此错，先完成前端部署（§6.1）。
-- 前端登录跳 `example.com`：对应前端 `dist/index.html` 未注入真实地址，跑一次 `php artisan turaidc:inject-frontend-config`（§6.2）。
+- 官网首页 500（`Could not resolve host: frontends`）：向导已把 `SEO_FRONTEND_SHELL_URL` 写为本机 `file://.../frontend-user-v3-www/index.html`，前端构建产物缺失会导致此错，先完成前端部署（§6.1）。
+- 前端登录跳 `example.com`：对应前端 `index.html` 未注入真实地址，跑一次 `php artisan turaidc:inject-frontend-config`（§6.2）。
+
+## 8. 版本升级
+
+发行包不含 `.env` 与 `storage/` 里的用户数据，因此升级比容器化简单；但**不能整目录无脑覆盖**——必须保留线上 `.env`（数据库密码、`APP_KEY`、四个真实地址）与 `storage/`（安装锁 `install.lock`、上传附件、日志），并执行数据库迁移。
+
+### 8.1 备份（保险）
+
+```bash
+cd /www/wwwroot/turaidc
+cp backend/.env /tmp/turaidc-env.bak
+tar czf /tmp/turaidc-storage.bak.tgz backend/storage
+```
+
+### 8.2 覆盖代码，保留配置与数据
+
+解压新包到临时目录，再选择性覆盖（不要碰 `.env` 与 `storage/`）：
+
+```bash
+unzip turaidc-<新版本>.zip -d /tmp/newpkg
+
+# 后端代码 + 依赖整体覆盖（vendor 可能随版本变化，必须一起换）
+cp -a /tmp/newpkg/backend/app       backend/
+cp -a /tmp/newpkg/backend/bootstrap backend/
+cp -a /tmp/newpkg/backend/config    backend/
+cp -a /tmp/newpkg/backend/routes    backend/
+cp -a /tmp/newpkg/backend/vendor    backend/
+
+# 三个前端：直接覆盖各自站点根目录的内容（静态、无状态）
+cp -a /tmp/newpkg/frontend-user-v3-www/.     <官网站点根>/
+cp -a /tmp/newpkg/frontend-user-v4-console/. <控制台站点根>/
+cp -a /tmp/newpkg/frontend-admin-v3/.        <管理端站点根>/
+
+# 关键：保持原 backend/.env 与 backend/storage 不变
+```
+
+> 更省事的做法：先把线上 `backend/.env` 与 `backend/storage` 移到别处，用新包整体替换 `backend/`，再把这俩挪回；任何方式只要保证 `.env` 与 `storage` 不被新包覆盖即可。
+
+### 8.3 跑迁移与清缓存
+
+覆盖后端代码后必须执行（新版本可能带数据库迁移或配置缓存）：
+
+```bash
+cd backend
+php artisan migrate --force
+php artisan config:clear && php artisan route:clear && php artisan view:clear && php artisan cache:clear
+```
+
+### 8.4 重新注入前端真实地址
+
+新包前端是占位地址，覆盖后需把真实地址写回（读 `backend/.env`）：
+
+```bash
+php artisan turaidc:inject-frontend-config
+```
+
+### 8.5 收尾
+
+- 重启 PHP-FPM（清 OPcache）：宝塔对应 PHP 版本「重启」即可。
+- 看本次发版说明：是否有破坏性变更、是否新增 env 变量（新增项手动并到 `backend/.env`）。
+- 跑迁移前先备份数据库。

@@ -130,6 +130,82 @@ location / {
 - 带 hash 的 JS、CSS、字体和图片可长期缓存；压缩由宝塔 Nginx 的全局能力处理，不需要在伪静态中添加模块指令。
 - 不要在用户控制台、管理端站点重新添加 `/api`、`/uploads`、`/media`、`/ws/vnc` 的 `proxy_pass`（官网的 SEO 转发只针对上述公开路径）。
 
+## 8. Apache 伪静态（等价规则）
+
+四个站点布局同上表（运行目录一致；扁平化发行包去掉 `/dist`）。Apache 下把对应规则填进各站点「伪静态」（等同于站点根 `.htaccess` 内容）。需开启 `mod_rewrite`；官网 SEO 动态渲染与 VNC 转发还需 `mod_proxy` / `mod_proxy_http` / `mod_proxy_wstunnel`。
+
+> 下面 `api.example.com` 换成你的 API 域名；若 API 与前端同机且未在 80 端口，改成 `127.0.0.1:实际端口`。
+
+### 8.1 API（Laravel）— 必填
+
+```apache
+RewriteEngine On
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^ index.php [L]
+```
+
+`backend/public` 自带 `.htaccess` 已含上述规则；站点根指向 `backend/public` 且 `AllowOverride All` 时通常无需额外填写。
+
+### 8.2 官网 www（SPA + SEO 动态渲染）
+
+```apache
+RewriteEngine On
+
+# SEO 公开路径反代到 API（读库动态渲染 title/meta/正文）
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^(robots\.txt|sitemap\.xml)$ http://api.example.com/$1 [P,L]
+
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^(cloud-server|hong-kong-server|us-server|high-defense-server|cloud-pc|about|terms|privacy|products)$ http://api.example.com/seo/www/$1 [P,L]
+
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^(notices|help)(/[0-9]+)?$ http://api.example.com/seo/www%{REQUEST_URI} [P,L]
+
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^products/([0-9]+)$ http://api.example.com/seo/www/products/$1 [P,L]
+
+# SPA 回退
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^ index.html [L]
+```
+
+### 8.3 用户控制台 console
+
+```apache
+RewriteEngine On
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^ index.html [L]
+```
+
+### 8.4 管理端 admin
+
+```apache
+RewriteEngine On
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^ index.html [L]
+```
+
+### 8.5 VNC 转发（可选，仅 VNC 中继）
+
+需 `mod_proxy` + `mod_proxy_wstunnel`：
+
+```apache
+<Location /ws/vnc>
+    ProxyPass ws://127.0.0.1:8100
+    ProxyPassReverse ws://127.0.0.1:8100
+</Location>
+```
+
+不装/不用 VNC 可忽略。
+
 ## 关联文档
 
 - [部署指南](deployment.md)：Nginx 配置的完整上下文。

@@ -6,14 +6,21 @@
 #   - 手动触发（workflow_dispatch）：打包并上传为构建产物（不建 Release）
 #
 # 产物：turaidc-<版本>.zip
-#   - backend/（含 composer 装好的 vendor/，解压即可跑 /install 向导）
-#   - frontend 三端源码
+#   - backend/（完整 Laravel 应用，含 composer install --no-dev 装好的 vendor/；
+#     web 文档根 = backend/public，解压即可跑 /install 向导）
+#   - 前端三端构建产物 dist/（源码不进包，需要重建时从仓库 clone）
 #   - 额外预构建一份占位地址的 dist（APP_URL 等用 example.com），
 #     解压即可预览；正式上线前请用真实地址重新 pnpm build 覆盖 dist
 #
+# 另出 4 个独立站点包（适合分目录/分机器部署）：
+#   - turaidc-api-<版本>.zip      = 完整 backend/（站点根 backend/public）
+#   - turaidc-www-<版本>.zip      = 官网 dist/ 内容（解压即站点根）
+#   - turaidc-console-<版本>.zip  = 控制台 dist/ 内容
+#   - turaidc-admin-<版本>.zip    = 管理端 dist/ 内容
+#
 # 说明：
-#   - 仅含 git 跟踪文件 + vendor + dist，已剔除 .git / node_modules / .env /
-#     安装锁 / 日志缓存
+#   - 仅含 backend/ + 三个前端 dist/ + vendor，已剔除前端源码 / docs / .github /
+#     .git / node_modules / .env / 安装锁 / 日志缓存
 #   - 已补入运行时目录（storage/*、bootstrap/cache），解压即可跑 /install 向导
 #   - 解压后：先 `cd backend && php artisan key:generate`，再 `chmod -R 775
 #     storage bootstrap/cache`，然后访问 /install（INSTALL_TOKEN 可选）
@@ -76,18 +83,23 @@ jobs:
           STAGING=/tmp/turaidc-pkg
           rm -rf "$STAGING" && mkdir -p "$STAGING"
 
-          # 仅复制 git 跟踪文件（自动排除 .git / node_modules / vendor / .env 等未跟踪项）
-          git ls-files -z | while IFS= read -r -d '' f; do
-            mkdir -p "$STAGING/$(dirname "$f")"
-            cp -a "$f" "$STAGING/$f"
-          done
+          # 仅复制部署必需内容（丢弃前端源码、docs、.github 等）：
+          #   - backend/ 完整（Laravel 运行必需；web 文档根是 backend/public）
+          #   - 三个前端的 dist/（源码不进包；需重建时从仓库 clone）
+          cp -a backend "$STAGING/backend"
 
           # 补入 composer 生成的 vendor（已装好，未跟踪）
           cp -a backend/vendor "$STAGING/backend/vendor"
 
-          # 补入前端预构建 dist（占位地址，未跟踪）
+          # 补入前端预构建 dist（占位地址，未跟踪）；扁平化：dist 内容直接进前端目录根，
+          # 这样解压后站点根 = frontend-x/ 本身，无需再下探一层 dist。
+          # 同时带入前端根目录的 .htaccess（Apache SPA 回退用，Nginx 忽略）。
           for d in frontend-admin-v3 frontend-user-v3-www frontend-user-v4-console; do
-            [ -d "$d/dist" ] && cp -a "$d/dist" "$STAGING/$d/dist"
+            if [ -d "$d/dist" ]; then
+              mkdir -p "$STAGING/$d"
+              cp -a "$d/dist/." "$STAGING/$d/"
+              [ -f "$d/.htaccess" ] && cp -a "$d/.htaccess" "$STAGING/$d/.htaccess"
+            fi
           done
 
           # 补入 git 不跟踪的运行时目录（根 .gitignore 忽略了 storage/framework/*、
@@ -115,17 +127,33 @@ jobs:
           echo "- 产物：$ZIP" >> "$GITHUB_STEP_SUMMARY"
           echo "- 大小：$(du -h "/tmp/$ZIP" | cut -f1)" >> "$GITHUB_STEP_SUMMARY"
 
+      - name: 打包四个独立站点 zip
+        run: |
+          set -euo pipefail
+          VERSION="${{ github.ref_name }}"
+          STAGING=/tmp/turaidc-pkg
+          cd "$STAGING"
+          # API：完整 backend（Laravel 不能只抽 public；部署时站点根 = backend/public）
+          (cd "$STAGING" && zip -r "/tmp/turaidc-api-${VERSION}.zip" backend -x '*.git*')
+          # 前端：各取 dist/ 内容（解压即站点根，无需再进一层 dist）
+          (cd "$STAGING/frontend-user-v3-www/dist" && zip -r "/tmp/turaidc-www-${VERSION}.zip" . -x '*.git*')
+          (cd "$STAGING/frontend-user-v4-console/dist" && zip -r "/tmp/turaidc-console-${VERSION}.zip" . -x '*.git*')
+          (cd "$STAGING/frontend-admin-v3/dist" && zip -r "/tmp/turaidc-admin-${VERSION}.zip" . -x '*.git*')
+          echo "ZIPS=/tmp/turaidc-api-${VERSION}.zip /tmp/turaidc-www-${VERSION}.zip /tmp/turaidc-console-${VERSION}.zip /tmp/turaidc-admin-${VERSION}.zip /tmp/${ZIP}" >> "$GITHUB_ENV"
+          echo "## 独立站点包" >> "$GITHUB_STEP_SUMMARY"
+          echo "- turaidc-api / turaidc-www / turaidc-console / turaidc-admin（各为单一站点部署根）" >> "$GITHUB_STEP_SUMMARY"
+
       - name: 发布到 GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: /tmp/${{ env.ZIP }}
+          files: ${{ env.ZIPS }}
           generate_release_notes: true
 
       - name: 上传构建产物（非 tag）
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.ZIP }}
-          path: /tmp/${{ env.ZIP }}
+          name: turaidc-site-packages
+          path: /tmp/turaidc-*.zip
           retention-days: 7
